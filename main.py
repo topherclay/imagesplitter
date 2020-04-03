@@ -221,7 +221,7 @@ class FrameSplitter:
             rois = [left_roi, right_roi]
             current_angle_rois.append(rois)
 
-            self.dummy_draw_roi_boundary_on_frame(rois[0])
+            # self.dummy_draw_roi_boundary_on_frame(rois[0])
 
 
         return current_angle_rois
@@ -235,19 +235,17 @@ class FrameSplitter:
             self.all_splits_of_one_angle(angle, step_size)
 
 
-
+        print("got all splits")
 
 
     def dummy_draw_roi_boundary_on_frame(self, vertices):
 
-
         vertices = list(vertices)
-
 
         roi_vertices = np.array(vertices, np.int32)
 
-
         self.frame = cv2.polylines(self.frame, [roi_vertices], True, (0, 0, 255))
+
 
 
 
@@ -272,6 +270,69 @@ class SplitInfo:
     # in lab and rgb btw
     # func+attr for finding highest color diff of all pairs
 
+
+class ROIComputer:
+
+    def __init__(self):
+        pass
+
+
+
+    @staticmethod
+    def find_average_color_in_roi(frame, mask):
+
+        color = [0, 0, 0]
+
+        color = cv2.mean(frame, mask)
+
+        print(color)
+
+
+
+    @staticmethod
+    def make_mask_from_roi(frame, roi):
+
+        points = []
+        for point_tuple in roi:
+            points.append(list(point_tuple))
+
+
+        points = np.asarray(points, np.int32)
+
+        mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+        white = (255, 255, 255)
+        mask = cv2.fillConvexPoly(img=mask, points=points, color=white)
+
+        return mask
+
+
+    @staticmethod
+    def apply_mask(frame, mask):
+
+        new_image = cv2.bitwise_and(src1=frame, src2=frame, mask=mask)
+        return new_image
+
+
+
+
+
+
+
+
+
+
+    def calculate_color_distance(self):
+        # take color as three channel and convert it to LAB and calculate
+        pass
+
+
+    def calculate_region_distance(self):
+        # calculate region color average
+        # get distance of those colors
+        pass
+
+
 def dummy_audit_angles(frame):
 
     step = 20
@@ -288,27 +349,29 @@ def dummy_audit_angles(frame):
         cv2.waitKey(0)
 
 
-
-
-
 if __name__ == '__main__':
-    source = cv2.imread("input.jpg")
+    source = cv2.imread("star.jpg")
     current_frame = FrameSplitter(source)
-
+    roi_comp = ROIComputer
 
     # current_frame.all_splits_of_one_angle(0, 50)
 
-    # current_frame.all_splits_of_one_angle(46, 20)
+    current_frame.all_splits_of_one_angle(46, 20)
+
+    # current_frame.dummy_draw_roi_boundary_on_frame(current_frame.split_info.rois[1])
+
 
     # current_frame.all_splits_of_all_angles(20)
 
-    dummy_audit_angles(current_frame)
+    # dummy_audit_angles(current_frame)
+
+    new_mask = roi_comp.make_mask_from_roi(current_frame.frame, current_frame.split_info.rois[46][10][0])
+
+    poop = roi_comp.apply_mask(current_frame.frame, new_mask)
+    roi_comp.find_average_color_in_roi(current_frame.frame, new_mask)
 
 
-
-
-
-
+    cv2.imshow("mask", poop)
     cv2.imshow("poop", current_frame.frame)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
