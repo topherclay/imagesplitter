@@ -228,7 +228,7 @@ class FrameSplitter:
 
         for angle in range(0, 180):
             self.all_splits_of_one_angle(angle, step_size)
-
+            self.split_info.save_masks_for_given_angle(self.frame, angle)
 
         print("got all splits")
 
@@ -252,7 +252,7 @@ class FrameSplitter:
         new_image = cv2.bitwise_and(src1=self.frame, src2=self.frame, mask=mask)
         return new_image
 
-    def find__if_top_or_bottom_slice_is_best(self, bottom_slice, top_slice, rois_list):
+    def find__if_top_or_bottom_slice_is_best(self, bottom_slice, top_slice, rois_list, mask_list):
 
         # this will give us 5 if the bottom splice is [1: 10]
         bottom_roi_index = round(len(rois_list[bottom_slice[0]:bottom_slice[1]]) / 2)
@@ -261,8 +261,8 @@ class FrameSplitter:
         top_roi_index = round(len(rois_list[top_slice[0]: top_slice[1]]) / 2 + top_slice[0])
 
 
-        bottom_roi_score = self.get_distance_in_color(rois_list[bottom_roi_index])
-        top_roi_score = self.get_distance_in_color(rois_list[top_roi_index])
+        bottom_roi_score = self.get_distance_in_color(rois_list[bottom_roi_index], masks)
+        top_roi_score = self.get_distance_in_color(rois_list[top_roi_index], masks)
 
         self.dummy_draw_roi_boundary_on_frame(rois_list[top_roi_index][0])
         self.dummy_draw_roi_boundary_on_frame(rois_list[bottom_roi_index][0])
@@ -270,59 +270,59 @@ class FrameSplitter:
 
         return bottom_roi_score, top_roi_score
 
-
-    def dummy_quick_sort_biggest_difference_of_one_angle(self, angle):
-
-        rois_list = self.split_info.rois[angle]
-
-        # find middle of rois
-        middle_index = round(len(rois_list) / 2)
-        middle_rois = rois_list[middle_index]
-
-        print(self.get_distance_in_color(middle_rois))
-
-
-        middle_score = self.get_distance_in_color(middle_rois)
-
-        bottom_score = 0
-        top_score = 0
-        current_score = 0
-
-        bottom_slice_index = [0, middle_index]
-        top_slice_index = [round((len(rois_list) - middle_index) / 2) + middle_index, len(rois_list)]
-
-        while not (current_score > top_score and current_score > bottom_score):
-
-            print("entered loop")
-            current_score = middle_score
-
-
-            bottom_score, top_score = self.find__if_top_or_bottom_slice_is_best(
-                bottom_slice_index, top_slice_index, rois_list)
-
-            print(f"bottom score = {bottom_score}")
-            print(f"middle_score = {middle_score}")
-            print(f"top_score = {top_score}")
-
-            if top_score > middle_score:
-                current_score = top_score
-                middle_index = round((top_slice_index[1] - top_slice_index[0]) / 2 + top_slice_index[0])
-                bottom_slice_index = [top_slice_index[0], middle_index]
-                top_slice_index = [middle_index, top_slice_index[1]]
-
-            if bottom_score > middle_score:
-                current_score = bottom_score
-                middle_index = round((bottom_slice_index[1] - bottom_slice_index[0]) / 2 + bottom_slice_index[0])
-                top_slice_index = [middle_index, bottom_slice_index[1]]
-                bottom_slice_index = [bottom_slice_index[0], middle_index]
-
-                middle_score = current_score
-
-
-
-
-
-        print(middle_index)
+    # def dummy_quick_sort_biggest_difference_of_one_angle(self, angle):
+    #
+    #     rois_list = self.split_info.rois[angle]
+    #     masks = self.split_info.masks[angle]
+    #
+    #     # find middle of rois
+    #     middle_index = round(len(rois_list) / 2)
+    #     middle_rois = rois_list[middle_index]
+    #
+    #     print(self.get_distance_in_color(middle_rois), masks)
+    #
+    #
+    #     middle_score = self.get_distance_in_color(middle_rois, masks)
+    #
+    #     bottom_score = 0
+    #     top_score = 0
+    #     current_score = 0
+    #
+    #     bottom_slice_index = [0, middle_index]
+    #     top_slice_index = [round((len(rois_list) - middle_index) / 2) + middle_index, len(rois_list)]
+    #
+    #     while not (current_score > top_score and current_score > bottom_score):
+    #
+    #         print("entered loop")
+    #         current_score = middle_score
+    #
+    #
+    #         bottom_score, top_score = self.find__if_top_or_bottom_slice_is_best(
+    #             bottom_slice_index, top_slice_index, rois_list, angle)
+    #
+    #         print(f"bottom score = {bottom_score}")
+    #         print(f"middle_score = {middle_score}")
+    #         print(f"top_score = {top_score}")
+    #
+    #         if top_score > middle_score:
+    #             current_score = top_score
+    #             middle_index = round((top_slice_index[1] - top_slice_index[0]) / 2 + top_slice_index[0])
+    #             bottom_slice_index = [top_slice_index[0], middle_index]
+    #             top_slice_index = [middle_index, top_slice_index[1]]
+    #
+    #         if bottom_score > middle_score:
+    #             current_score = bottom_score
+    #             middle_index = round((bottom_slice_index[1] - bottom_slice_index[0]) / 2 + bottom_slice_index[0])
+    #             top_slice_index = [middle_index, bottom_slice_index[1]]
+    #             bottom_slice_index = [bottom_slice_index[0], middle_index]
+    #
+    #             middle_score = current_score
+    #
+    #
+    #
+    #
+    #
+    #     print(middle_index)
 
     def find_biggest_difference_split_of_one_angle(self, angle):
 
@@ -330,12 +330,15 @@ class FrameSplitter:
 
 
         rois_list = self.split_info.rois[angle]
+        masks = self.split_info.masks[angle]
 
         previous_best_difference = 0
         best_index = None
         for index in range(len(rois_list)):
 
-            current_difference = self.get_distance_in_color(rois_list[index])
+            current_difference = self.get_distance_in_color(rois_list[index], masks[index])
+
+            print(f"checking index #{index}. difference is {current_difference}")
 
             if current_difference > previous_best_difference:
                 previous_best_difference = current_difference
@@ -357,14 +360,18 @@ class FrameSplitter:
         # add best slice to "rois to be considered"
 
 
-    def get_distance_in_color(self, rois):
+    def get_distance_in_color(self, rois, masks):
 
         left_roi = rois[0]
         right_roi = rois[1]
 
         # I need to have the masks be created previous to this function and have them pulled from self.splitinfo
-        left_mask = make_mask_from_roi(self.frame, left_roi)
-        right_mask = make_mask_from_roi(self.frame, right_roi)
+        # left_mask = make_mask_from_roi(self.frame, left_roi)
+        # right_mask = make_mask_from_roi(self.frame, right_roi)
+
+        left_mask = masks[0]
+        right_mask = masks[1]
+
 
         left_color = cv2.mean(self.frame, left_mask)
         right_color = cv2.mean(self.frame, right_mask)
@@ -405,17 +412,7 @@ class FrameSplitter:
 
 
 
-    # unused function
-    def go_through_masks(self):
 
-        for angle in range(0, 179):
-            for index in range(0, len(self.split_info.rois[angle])):
-
-                mask = self.make_mask_from_roi(self.split_info.rois[angle][index][0])
-                masked_frame = self.apply_mask(mask)
-
-
-        print("done!")
 
 
 
@@ -451,10 +448,13 @@ class SplitInfo:
             left_mask = make_mask_from_roi(frame, self.rois[angle][index][0])
             right_mask = make_mask_from_roi(frame, self.rois[angle][index][1])
             masks = [left_mask, right_mask]
-
             self.masks[angle].append(masks)
 
-        print("saved masks")
+
+        print(f"Saved masks for angle {angle}")
+
+
+
 
 
 
@@ -538,9 +538,14 @@ if __name__ == '__main__':
     current_frame = FrameSplitter(source)
 
 
-    current_frame.all_splits_of_one_angle(15, 20)
-    current_frame.split_info.save_masks_for_given_angle(current_frame.frame, 15)
-    current_frame.find_biggest_difference_split_of_one_angle(15)
+    # current_frame.all_splits_of_one_angle(15, 20)
+    #
+    # current_frame.split_info.save_masks_for_given_angle(current_frame.frame, 15)
+
+
+    current_frame.all_splits_of_all_angles(20)
+    current_frame.find_biggest_difference_split_of_one_angle(10)
+
 
 
 
@@ -549,12 +554,6 @@ if __name__ == '__main__':
 
 
 
-
-
-    # current_frame.go_through_masks()
-
-
-    # current_frame.all_splits_of_all_angles(20)
 
     # dummy_audit_angles(current_frame)
 
