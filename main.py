@@ -215,15 +215,14 @@ class FrameSplitter:
 
             if not left_roi or not right_roi:
                 # If ROI are not filled, then that means the point was invalid,
-
                 break
 
             rois = [left_roi, right_roi]
             current_angle_rois.append(rois)
 
-            self.dummy_draw_roi_boundary_on_frame(rois[0])
+            # self.dummy_draw_roi_boundary_on_frame(rois[0])
 
-
+        # Is this return necessary? Do any calls of this function use the value?
         return current_angle_rois
 
 
@@ -255,8 +254,26 @@ class FrameSplitter:
         new_image = cv2.bitwise_and(src1=self.frame, src2=self.frame, mask=mask)
         return new_image
 
+    def find__if_top_or_bottom_slice_is_best(self, bottom_slice, top_slice, rois_list):
 
-    def find_biggest_difference_split_of_one_angle(self, angle):
+        # this will give us 5 if the bottom splice is [1: 10]
+        bottom_roi_index = round(len(rois_list[bottom_slice[0]:bottom_slice[1]]) / 2)
+
+        # this will give us 15 if the top splice is [10: 20]
+        top_roi_index = round(len(rois_list[top_slice[0]: top_slice[1]]) / 2 + top_slice[0])
+
+
+        bottom_roi_score = self.get_distance_in_color(rois_list[bottom_roi_index])
+        top_roi_score = self.get_distance_in_color(rois_list[top_roi_index])
+
+        self.dummy_draw_roi_boundary_on_frame(rois_list[top_roi_index][0])
+        self.dummy_draw_roi_boundary_on_frame(rois_list[bottom_roi_index][0])
+
+
+        return bottom_roi_score, top_roi_score
+
+
+    def dummy_quick_sort_biggest_difference_of_one_angle(self, angle):
 
         rois_list = self.split_info.rois[angle]
 
@@ -265,6 +282,70 @@ class FrameSplitter:
         middle_rois = rois_list[middle_index]
 
         print(self.get_distance_in_color(middle_rois))
+
+
+        middle_score = self.get_distance_in_color(middle_rois)
+
+        bottom_score = 0
+        top_score = 0
+        current_score = 0
+
+        bottom_slice_index = [0, middle_index]
+        top_slice_index = [round((len(rois_list) - middle_index) / 2) + middle_index, len(rois_list)]
+
+        while not (current_score > top_score and current_score > bottom_score):
+
+            print("entered loop")
+            current_score = middle_score
+
+
+            bottom_score, top_score = self.find__if_top_or_bottom_slice_is_best(
+                bottom_slice_index, top_slice_index, rois_list)
+
+            print(f"bottom score = {bottom_score}")
+            print(f"middle_score = {middle_score}")
+            print(f"top_score = {top_score}")
+
+            if top_score > middle_score:
+                current_score = top_score
+                middle_index = round((top_slice_index[1] - top_slice_index[0]) / 2 + top_slice_index[0])
+                bottom_slice_index = [top_slice_index[0], middle_index]
+                top_slice_index = [middle_index, top_slice_index[1]]
+
+            if bottom_score > middle_score:
+                current_score = bottom_score
+                middle_index = round((bottom_slice_index[1] - bottom_slice_index[0]) / 2 + bottom_slice_index[0])
+                top_slice_index = [middle_index, bottom_slice_index[1]]
+                bottom_slice_index = [bottom_slice_index[0], middle_index]
+
+                middle_score = current_score
+
+
+
+
+
+        print(middle_index)
+
+    def find_biggest_difference_split_of_one_angle(self, angle):
+
+        # todo: find out what to do with ties...
+
+
+        rois_list = self.split_info.rois[angle]
+
+        previous_best_difference = 0
+        best_index = None
+        for index in range(len(rois_list)):
+
+            current_difference = self.get_distance_in_color(rois_list[index])
+
+            if current_difference > previous_best_difference:
+                previous_best_difference = current_difference
+                best_index = index
+
+        print(best_index)
+        self.dummy_draw_roi_boundary_on_frame(rois_list[best_index][0])
+
 
         # func get difference in color
 
@@ -443,10 +524,12 @@ if __name__ == '__main__':
     current_frame = FrameSplitter(source)
 
 
-    current_frame.all_splits_of_one_angle(8, 20)
-    current_frame.find_biggest_difference_split_of_one_angle(8)
+    current_frame.all_splits_of_one_angle(15, 20)
+    current_frame.find_biggest_difference_split_of_one_angle(15)
 
 
+
+    print("end")
     # current_frame.all_splits_of_all_angles(30)
 
 
