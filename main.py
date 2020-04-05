@@ -222,8 +222,6 @@ class FrameSplitter:
 
             # self.dummy_draw_roi_boundary_on_frame(rois[0])
 
-        # Is this return necessary? Do any calls of this function use the value?
-        return current_angle_rois
 
 
     def all_splits_of_all_angles(self, step_size):
@@ -364,6 +362,7 @@ class FrameSplitter:
         left_roi = rois[0]
         right_roi = rois[1]
 
+        # I need to have the masks be created previous to this function and have them pulled from self.splitinfo
         left_mask = make_mask_from_roi(self.frame, left_roi)
         right_mask = make_mask_from_roi(self.frame, right_roi)
 
@@ -435,7 +434,7 @@ class SplitInfo:
     def __init__(self):
         self.rois = self.make_angle_array()
         self.color_pair = self.make_angle_array()
-
+        self.masks = self.make_angle_array()
 
     @staticmethod
     def make_angle_array():
@@ -445,12 +444,27 @@ class SplitInfo:
 
         return matrix_row
 
+    def save_masks_for_given_angle(self, frame, angle):
+
+
+        for index in range(len(self.rois[angle])):
+            left_mask = make_mask_from_roi(frame, self.rois[angle][index][0])
+            right_mask = make_mask_from_roi(frame, self.rois[angle][index][1])
+            masks = [left_mask, right_mask]
+
+            self.masks[angle].append(masks)
+
+        print("saved masks")
 
 
 
-    # func+attr for finding color differences between a pair
-    # in lab and rgb btw
-    # func+attr for finding highest color diff of all pairs
+
+
+
+
+
+
+
 
 
 
@@ -525,6 +539,7 @@ if __name__ == '__main__':
 
 
     current_frame.all_splits_of_one_angle(15, 20)
+    current_frame.split_info.save_masks_for_given_angle(current_frame.frame, 15)
     current_frame.find_biggest_difference_split_of_one_angle(15)
 
 
