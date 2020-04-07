@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 import math
+import time
+import os.path
 
 
 
@@ -10,6 +12,7 @@ class FrameSplitter:
         assert margin >= 0
         assert margin <= 100
         self.frame = frame
+        self.example_frame = np.copy(frame)
         # Probably just going to remove margin. Have the program ignore small slices instead but still slice them
         self.margin = margin
         # maybe this needs to be a percentage
@@ -18,6 +21,7 @@ class FrameSplitter:
         self.left_side_start_point = self.get_left_side_starting_point()
         self.right_side_start_point = self.get_right_side_start_point()
         self.split_info = SplitInfo()
+
 
     @staticmethod
     def get_left_side_starting_point():
@@ -51,6 +55,14 @@ class FrameSplitter:
         return slope
 
     @staticmethod
+    def get_deg_from_slope(slope):
+        pi = 22/7
+        radian = math.atan(slope)
+        degree = radian / (pi/180)
+        return degree
+
+
+    @staticmethod
     def get_y_intercept_value(slope, point):
         x = point[0]
         y = point[1]
@@ -60,50 +72,58 @@ class FrameSplitter:
 
     def find_boundary_intersects(self, point, slope, y_intercept):
 
-        boundary_intersects = {"top": False, "right": False, "bottom": False, "left": False}
+        boundary_intersects = {"top": False, "right": False, "bottom": False, "left": False,
+                               "top_point": [-1, -1], "right_point": [-1, -1], "bottom_point": [-1, -1], "left_point": [-1, -1]}
 
         # top
         try:
-            intersect_point = round(-1 * y_intercept / slope)
+            # top boundary is y = 0
+            # x = -b / m
+            intersect_point = -1 * y_intercept / slope
         except ZeroDivisionError:
             intersect_point = -1
         if (intersect_point >= 0) and (intersect_point <= self.x_dim_len):
             boundary_intersects["top"] = True
-            boundary_intersects["top_point"] = (intersect_point, 0)
+            boundary_intersects["top_point"] = (round(intersect_point), 0)
             # vertical slope should be infinite but isnt, this will catch this case.
             if (slope < -1000) or (slope > 1000):
                 boundary_intersects["top_point"] = (point[0], 0)
 
         # left
-        intersect_point = round(y_intercept)
-        if (intersect_point > 0) and (intersect_point < self.y_dim_len):
+        # left boundary is x = 0
+        # y = b
+        intersect_point = y_intercept
+        if (intersect_point > 0) and (intersect_point <= self.y_dim_len - 1):
             boundary_intersects["left"] = True
-            boundary_intersects["left_point"] = (0, intersect_point)
+            boundary_intersects["left_point"] = (0, round(intersect_point))
 
         # bottom
         try:
-            intersect_point = int((self.y_dim_len - y_intercept) / slope)
+            # bottom boundary is y = y_dim_len
+            # x = (y_dim_len - b) / m
+            intersect_point = (self.y_dim_len - y_intercept) / slope
         except ZeroDivisionError:
             intersect_point = -1
         if (intersect_point >= 0) and (intersect_point <= self.x_dim_len):
             boundary_intersects["bottom"] = True
-            boundary_intersects["bottom_point"] = (intersect_point, self.y_dim_len)
+            boundary_intersects["bottom_point"] = (round(intersect_point), self.y_dim_len)
             # vertical slope should be infinite but isn't, this will catch this case.
             if (slope < -1000) or (slope > 1000):
                 boundary_intersects["bottom_point"] = (point[0], self.y_dim_len)
 
         # right
-        intersect_point = round((slope * self.x_dim_len) + y_intercept)
-        if (intersect_point > 0) and (intersect_point < self.y_dim_len):
+        # right boundary is x = x_dim_len
+        # y = (m * x_dim_len) + b
+        intersect_point = (slope * self.x_dim_len) + y_intercept
+        if (intersect_point > 0) and (intersect_point <= self.y_dim_len - 1):
             boundary_intersects["right"] = True
-            boundary_intersects["right_point"] = (self.x_dim_len, intersect_point)
-
-
-
-
-        # print(boundary_intersects)
+            boundary_intersects["right_point"] = (self.x_dim_len, round(intersect_point))
 
         return boundary_intersects
+
+
+
+
 
     def get_two_rois_from_slope_and_intercepts(self, slope, intercepts):
         top_left = (0, 0)
@@ -113,6 +133,22 @@ class FrameSplitter:
 
         right_roi = None
         left_roi = None
+        #
+        # corners = [top_left, top_right, bottom_left, bottom_right]
+        #
+        # intercept_points = ["top_point", "bottom_point", "left_point", "right_point"]
+        # # intercept_points = ["left_point", "right_point"]
+        # #
+        # for side in intercept_points:
+        #     if intercepts[side] in corners:
+        #         intercepts[side[0:-6]] = False
+        #         print("found one!")
+        #         angle = self.get_deg_from_slope(slope)
+        #         print(f"when slope was {round(angle, 5)}, {side} point was {intercepts[side]}")
+        #
+
+
+
 
         # horizontal splits
         if intercepts["left"] and intercepts["right"]:
@@ -190,7 +226,6 @@ class FrameSplitter:
         new_y = perpendicular_slope * new_x + new_b
 
 
-
         new_point = (round(new_x), round(new_y))
 
         return new_point
@@ -217,10 +252,11 @@ class FrameSplitter:
                 # If ROI are not filled, then that means the point was invalid,
                 break
 
+
             rois = [left_roi, right_roi]
             current_angle_rois.append(rois)
 
-            # self.dummy_draw_roi_boundary_on_frame(rois[0])
+
 
 
 
@@ -228,9 +264,8 @@ class FrameSplitter:
 
         for angle in range(0, 180):
             self.all_splits_of_one_angle(angle, step_size)
-            self.split_info.save_masks_for_given_angle(self.frame, angle)
+            # self.split_info.save_masks_for_given_angle(self.frame, angle)
 
-        print("got all splits")
 
     def make_mask_from_roi(self, roi):
 
@@ -252,122 +287,85 @@ class FrameSplitter:
         new_image = cv2.bitwise_and(src1=self.frame, src2=self.frame, mask=mask)
         return new_image
 
-    def find__if_top_or_bottom_slice_is_best(self, bottom_slice, top_slice, rois_list, mask_list):
-
-        # this will give us 5 if the bottom splice is [1: 10]
-        bottom_roi_index = round(len(rois_list[bottom_slice[0]:bottom_slice[1]]) / 2)
-
-        # this will give us 15 if the top splice is [10: 20]
-        top_roi_index = round(len(rois_list[top_slice[0]: top_slice[1]]) / 2 + top_slice[0])
-
-
-        bottom_roi_score = self.get_distance_in_color(rois_list[bottom_roi_index], masks)
-        top_roi_score = self.get_distance_in_color(rois_list[top_roi_index], masks)
-
-        self.dummy_draw_roi_boundary_on_frame(rois_list[top_roi_index][0])
-        self.dummy_draw_roi_boundary_on_frame(rois_list[bottom_roi_index][0])
-
-
-        return bottom_roi_score, top_roi_score
-
-    # def dummy_quick_sort_biggest_difference_of_one_angle(self, angle):
-    #
-    #     rois_list = self.split_info.rois[angle]
-    #     masks = self.split_info.masks[angle]
-    #
-    #     # find middle of rois
-    #     middle_index = round(len(rois_list) / 2)
-    #     middle_rois = rois_list[middle_index]
-    #
-    #     print(self.get_distance_in_color(middle_rois), masks)
-    #
-    #
-    #     middle_score = self.get_distance_in_color(middle_rois, masks)
-    #
-    #     bottom_score = 0
-    #     top_score = 0
-    #     current_score = 0
-    #
-    #     bottom_slice_index = [0, middle_index]
-    #     top_slice_index = [round((len(rois_list) - middle_index) / 2) + middle_index, len(rois_list)]
-    #
-    #     while not (current_score > top_score and current_score > bottom_score):
-    #
-    #         print("entered loop")
-    #         current_score = middle_score
-    #
-    #
-    #         bottom_score, top_score = self.find__if_top_or_bottom_slice_is_best(
-    #             bottom_slice_index, top_slice_index, rois_list, angle)
-    #
-    #         print(f"bottom score = {bottom_score}")
-    #         print(f"middle_score = {middle_score}")
-    #         print(f"top_score = {top_score}")
-    #
-    #         if top_score > middle_score:
-    #             current_score = top_score
-    #             middle_index = round((top_slice_index[1] - top_slice_index[0]) / 2 + top_slice_index[0])
-    #             bottom_slice_index = [top_slice_index[0], middle_index]
-    #             top_slice_index = [middle_index, top_slice_index[1]]
-    #
-    #         if bottom_score > middle_score:
-    #             current_score = bottom_score
-    #             middle_index = round((bottom_slice_index[1] - bottom_slice_index[0]) / 2 + bottom_slice_index[0])
-    #             top_slice_index = [middle_index, bottom_slice_index[1]]
-    #             bottom_slice_index = [bottom_slice_index[0], middle_index]
-    #
-    #             middle_score = current_score
-    #
-    #
-    #
-    #
-    #
-    #     print(middle_index)
 
     def find_biggest_difference_split_of_one_angle(self, angle):
 
         # todo: find out what to do with ties...
+        self.split_info.masks = self.split_info.make_angle_array()
+        self.split_info.save_masks_for_given_angle(self.frame, angle)
 
 
         rois_list = self.split_info.rois[angle]
         masks = self.split_info.masks[angle]
+
 
         previous_best_difference = 0
         best_index = None
         for index in range(len(rois_list)):
 
             current_difference = self.get_distance_in_color(rois_list[index], masks[index])
+            # print(f"checking index #{index}. difference is {current_difference}")
 
-            print(f"checking index #{index}. difference is {current_difference}")
+
+
+            # print(current_difference)
 
             if current_difference > previous_best_difference:
                 previous_best_difference = current_difference
                 best_index = index
 
-        print(best_index)
+        #
+        # if previous_best_difference > 60:
         self.dummy_draw_roi_boundary_on_frame(rois_list[best_index][0])
+        #
 
 
-        # func get difference in color
+        self.split_info.best_rois[angle] = rois_list[best_index]
+        self.split_info.best_index_of_angle[angle] = best_index
+        self.split_info.difference_for_best_rois[angle] = previous_best_difference
 
 
-        # take all rois of one angle
-        # add full slice to "rois to be considered"
-        # cut rois to be considered in half and check middle
-        # save difference and add top slice and bottom slice as two "rois to be considered"
-        # cut top slice in half and check
-        # cut bottom slice in hlf and check
-        # add best slice to "rois to be considered"
+
+
+
+    def find_biggest_difference_of_all_angles(self):
+
+        for angle in range(0, 179):
+            self.find_biggest_difference_split_of_one_angle(angle)
+            if round(angle / 15) == (angle / 15):
+                print(f"working on angles {angle} through {angle + 14}")
+            angles_best = self.split_info.difference_for_best_rois[angle]
+            # print(f"{angle}'s best is {round(angles_best, 1)}")
+
+
+
+        previous_best_difference = 0
+        for angle in range(0, 179):
+            current_difference = self.split_info.difference_for_best_rois[angle]
+
+            if current_difference > previous_best_difference:
+                previous_best_difference = current_difference
+                best_angle = angle
+                # print(f"angle {angle}'s best difference so far is {current_difference}")
+
+
+        # broken because of corner bug
+        # self.dummy_draw_roi_boundary_on_frame(self.split_info.best_rois[best_angle][0])
+
+
+        # print(f"best angle is {best_angle}")
+        # print(f"index from that angle is {self.split_info.best_index_of_angle[best_angle]}")
+
+        
+
+
+
+
+
+
 
 
     def get_distance_in_color(self, rois, masks):
-
-        left_roi = rois[0]
-        right_roi = rois[1]
-
-        # I need to have the masks be created previous to this function and have them pulled from self.splitinfo
-        # left_mask = make_mask_from_roi(self.frame, left_roi)
-        # right_mask = make_mask_from_roi(self.frame, right_roi)
 
         left_mask = masks[0]
         right_mask = masks[1]
@@ -423,7 +421,8 @@ class FrameSplitter:
 
         roi_vertices = np.array(vertices, np.int32)
 
-        self.frame = cv2.polylines(self.frame, [roi_vertices], True, (0, 0, 255))
+        cv2.polylines(self.example_frame, [roi_vertices], True, (0, 0, 255))
+        # print("drew on frame.frame")
 
 
 class SplitInfo:
@@ -432,6 +431,11 @@ class SplitInfo:
         self.rois = self.make_angle_array()
         self.color_pair = self.make_angle_array()
         self.masks = self.make_angle_array()
+        self.best_rois = self.make_angle_array()
+        self.best_index_of_angle = self.make_angle_array()
+        self.difference_for_best_rois = self.make_angle_array()
+
+
 
     @staticmethod
     def make_angle_array():
@@ -451,22 +455,7 @@ class SplitInfo:
             self.masks[angle].append(masks)
 
 
-        print(f"Saved masks for angle {angle}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # print(f"Saved masks for angle {angle}")
 
 
 
@@ -501,15 +490,8 @@ def apply_mask(frame, mask):
     return new_image
 
 
-
 def calculate_color_distance():
     # take color as three channel and convert it to LAB and calculate
-    pass
-
-
-def calculate_region_distance():
-    # calculate region color average
-    # get distance of those colors
     pass
 
 
@@ -529,42 +511,87 @@ def dummy_audit_angles(frame):
         cv2.waitKey(0)
 
 
+def get_source_file_from_input_folder():
+    input_folder = os.path.join(os.getcwd(), "inputs")
+
+    if not os.path.exists(input_folder):
+        os.mkdir(input_folder)
+        raise RuntimeError(f"{input_folder} didn't exist, now it does. Please place photo in it.")
+
+    file_paths = []
+    for (dirs, dir_name, file_names) in os.walk(input_folder):
+        for file_name in file_names:
+            file_name = file_name
+            file_paths.append(os.path.join(input_folder, file_name))
+
+    if not file_paths:
+        raise RuntimeError("put some pictures in the folder ya dingus")
+
+
+    return file_paths
+
+
+def run_one_input(frame, name):
+    start_time = time.time()
+
+    step_size = round(frame.x_dim_len / 30)
+
+    frame.all_splits_of_all_angles(step_size)
+
+    splits_done_time = time.time() - start_time
+
+    print(f"splits done in {round(splits_done_time, 2)} seconds")
+
+    frame.find_biggest_difference_of_all_angles()
+
+    masks_done_time = time.time() - start_time - splits_done_time
+    print(f"masks done in {masks_done_time} seconds")
+
+    save_to_output_folder(frame, name)
+
+
+
+def run_all_inputs(paths):
+
+    print(f"Running {len(paths)} picture(s).")
+
+    for index in range(0, len(paths)):
+        print(f"now running: {os.path.basename(paths[index])}")
+        source = cv2.imread(paths[index])
+        current_frame = FrameSplitter(source)
+        run_one_input(current_frame, paths[index])
+    print("done with all!")
+
+
+def save_to_output_folder(output_file, output_name):
+    output_name = os.path.basename(output_name)
+
+    output_folder = os.path.join(os.getcwd(), "outputs")
+    print(f"output folder is {output_folder}")
+
+    if not os.path.exists(output_folder):
+        os.mkdir(output_folder)
+
+    image_in_folder = os.path.join(output_folder, output_name)
+    rel_name = os.path.relpath(image_in_folder)
+
+    print(f"output name is {output_name}")
+    print(f"his is new output names {rel_name}")
+
+    cv2.imwrite(rel_name, output_file.example_frame)
 
 
 
 
 if __name__ == '__main__':
-    source = cv2.imread("star.jpg")
-    current_frame = FrameSplitter(source)
 
 
-    # current_frame.all_splits_of_one_angle(15, 20)
-    #
-    # current_frame.split_info.save_masks_for_given_angle(current_frame.frame, 15)
+    source_path = get_source_file_from_input_folder()
 
-
-    current_frame.all_splits_of_all_angles(20)
-    current_frame.find_biggest_difference_split_of_one_angle(10)
+    run_all_inputs(source_path)
 
 
 
 
-    print("end")
-    # current_frame.all_splits_of_all_angles(30)
-
-
-
-
-    # dummy_audit_angles(current_frame)
-
-    # new_mask = make_mask_from_roi(current_frame.frame, current_frame.split_info.rois[1][5][1])
-    #
-    # poop = apply_mask(current_frame.frame, new_mask)
-    # find_average_color_in_roi(current_frame.frame, new_mask)
-
-
-    # cv2.imshow("mask", poop)
-    cv2.imshow("poop", current_frame.frame)
-    cv2.waitKey(0)
     cv2.destroyAllWindows()
 
