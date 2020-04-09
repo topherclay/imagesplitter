@@ -3,44 +3,45 @@ import cv2
 import math
 import time
 import os.path
+import resizer
+from shapely import geometry
+
+
 
 
 
 class FrameSplitter:
 
-    def __init__(self, frame, margin=0):
-        assert margin >= 0
-        assert margin <= 100
+    def __init__(self, frame):
         self.frame = frame
         self.example_frame = np.copy(frame)
-        # Probably just going to remove margin. Have the program ignore small slices instead but still slice them
-        self.margin = margin
-        # maybe this needs to be a percentage
+        self.color_frame = None
+        self.dual_panel_frame = None
         self.x_dim_len = self.frame.shape[1]
         self.y_dim_len = self.frame.shape[0]
         self.left_side_start_point = self.get_left_side_starting_point()
         self.right_side_start_point = self.get_right_side_start_point()
+        self.frame_area = self.get_frame_area()
         self.split_info = SplitInfo()
+
+
+    def get_frame_area(self):
+
+        poly = geometry.Polygon(((0, 0), (0, self.y_dim_len), (self.x_dim_len, self.y_dim_len), (self.x_dim_len, 0)))
+        return poly.area
+
+
+
 
 
     @staticmethod
     def get_left_side_starting_point():
-
-        # no longer using margins
-        # x_start = int(self.x_dim_len * float(self.margin / 100)) + 1
-        # y_start = int(self.y_dim_len * float(self.margin / 100)) + 1
-
         x_start = 1
         y_start = 1
-
-
         return x_start, y_start
 
 
     def get_right_side_start_point(self):
-        # no longer using margins
-        # x_start = self.x_dim_len - int(self.x_dim_len * float(self.margin / 100)) - 1
-        # y_start = int(self.y_dim_len * float(self.margin / 100)) - 1
 
         x_start = self.x_dim_len - 1
         y_start = 1
@@ -133,21 +134,6 @@ class FrameSplitter:
 
         right_roi = None
         left_roi = None
-        #
-        # corners = [top_left, top_right, bottom_left, bottom_right]
-        #
-        # intercept_points = ["top_point", "bottom_point", "left_point", "right_point"]
-        # # intercept_points = ["left_point", "right_point"]
-        # #
-        # for side in intercept_points:
-        #     if intercepts[side] in corners:
-        #         intercepts[side[0:-6]] = False
-        #         print("found one!")
-        #         angle = self.get_deg_from_slope(slope)
-        #         print(f"when slope was {round(angle, 5)}, {side} point was {intercepts[side]}")
-        #
-
-
 
 
         # horizontal splits
@@ -264,7 +250,7 @@ class FrameSplitter:
 
         for angle in range(0, 180):
             self.all_splits_of_one_angle(angle, step_size)
-            # self.split_info.save_masks_for_given_angle(self.frame, angle)
+
 
 
     def make_mask_from_roi(self, roi):
@@ -303,21 +289,19 @@ class FrameSplitter:
         best_index = None
         for index in range(len(rois_list)):
 
-            current_difference = self.get_distance_in_color(rois_list[index], masks[index])
-            # print(f"checking index #{index}. difference is {current_difference}")
+            area_of_roi = geometry.Polygon(rois_list[index][0]).area
+            percentage_of_area_of_frame = area_of_roi / self.frame_area
 
+            if percentage_of_area_of_frame > 0.9 or percentage_of_area_of_frame < 0.1:
+                current_difference = 0
+            else:
+                current_difference = self.get_distance_in_color(rois_list[index], masks[index])
 
-
-            # print(current_difference)
 
             if current_difference > previous_best_difference:
                 previous_best_difference = current_difference
                 best_index = index
 
-        #
-        # if previous_best_difference > 60:
-        self.dummy_draw_roi_boundary_on_frame(rois_list[best_index][0])
-        #
 
 
         self.split_info.best_rois[angle] = rois_list[best_index]
@@ -332,11 +316,6 @@ class FrameSplitter:
 
         for angle in range(0, 179):
             self.find_biggest_difference_split_of_one_angle(angle)
-            if round(angle / 15) == (angle / 15):
-                print(f"working on angles {angle} through {angle + 14}")
-            angles_best = self.split_info.difference_for_best_rois[angle]
-            # print(f"{angle}'s best is {round(angles_best, 1)}")
-
 
 
         previous_best_difference = 0
@@ -346,15 +325,16 @@ class FrameSplitter:
             if current_difference > previous_best_difference:
                 previous_best_difference = current_difference
                 best_angle = angle
-                # print(f"angle {angle}'s best difference so far is {current_difference}")
 
 
-        # broken because of corner bug
-        # self.dummy_draw_roi_boundary_on_frame(self.split_info.best_rois[best_angle][0])
+
+        self.color_in_splits(best_angle)
 
 
-        # print(f"best angle is {best_angle}")
-        # print(f"index from that angle is {self.split_info.best_index_of_angle[best_angle]}")
+        self.draw_roi_boundary_on_frame(self.split_info.best_rois[best_angle][0])
+
+
+
 
         
 
@@ -408,21 +388,52 @@ class FrameSplitter:
         pass
 
 
-
-
-
-
-
-
-
-    def dummy_draw_roi_boundary_on_frame(self, vertices):
+    def draw_roi_boundary_on_frame(self, vertices):
 
         vertices = list(vertices)
 
         roi_vertices = np.array(vertices, np.int32)
 
         cv2.polylines(self.example_frame, [roi_vertices], True, (0, 0, 255))
-        # print("drew on frame.frame")
+
+
+    def color_in_splits(self, angle):
+        frame = self.frame
+
+        left_mask = make_mask_from_roi(frame, self.split_info.best_rois[angle][0])
+        right_mask = make_mask_from_roi(frame, self.split_info.best_rois[angle][1])
+
+
+        # get color in RGB
+        left_color = cv2.mean(self.frame, left_mask)
+        right_color = cv2.mean(self.frame, right_mask)
+
+        # make blank frames
+        left_rgb = np.zeros([self.y_dim_len, self.x_dim_len, 3], np.uint8)
+        right_rgb = np.zeros([self.y_dim_len, self.x_dim_len, 3], np.uint8)
+
+        # color in full frames
+        left_rgb[::][::] = left_color[:3]
+        right_rgb[::][::] = right_color[:3]
+
+        # blank frame to be added to
+        self.color_frame = np.ones([self.y_dim_len, self.x_dim_len, 3], np.uint8)
+
+        # cut off corners of the colored frames
+        left_filled = cv2.add(left_rgb, self.color_frame, mask=left_mask)
+        right_filled = cv2.add(right_rgb, self.color_frame, mask=right_mask)
+
+        # combine both colored frames to final
+        self.color_frame = cv2.add(left_filled, right_filled)
+
+
+    def create_dual_pane_display(self):
+
+        self.dual_panel_frame = np.concatenate((self.example_frame, self.color_frame), axis=1)
+
+
+
+
 
 
 class SplitInfo:
@@ -455,8 +466,6 @@ class SplitInfo:
             self.masks[angle].append(masks)
 
 
-        # print(f"Saved masks for angle {angle}")
-
 
 
 
@@ -474,25 +483,9 @@ def make_mask_from_roi(frame, roi):
     white = (255, 255, 255)
     mask = cv2.fillConvexPoly(img=mask, points=points, color=white)
 
-    # mask = cv2.bitwise_and(src1=frame, src2=frame, mask=mask)
-
-    # cv2.imshow("mask", mask)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
 
     return mask
 
-
-# defunct?
-def apply_mask(frame, mask):
-
-    new_image = cv2.bitwise_and(src1=frame, src2=frame, mask=mask)
-    return new_image
-
-
-def calculate_color_distance():
-    # take color as three channel and convert it to LAB and calculate
-    pass
 
 
 def dummy_audit_angles(frame):
@@ -534,20 +527,35 @@ def get_source_file_from_input_folder():
 def run_one_input(frame, name):
     start_time = time.time()
 
-    step_size = round(frame.x_dim_len / 30)
+    step_size = round(frame.x_dim_len / 20)
 
     frame.all_splits_of_all_angles(step_size)
 
     splits_done_time = time.time() - start_time
 
-    print(f"splits done in {round(splits_done_time, 2)} seconds")
-
+    print(f"\tsplits done in {round(splits_done_time, 2)} seconds")
     frame.find_biggest_difference_of_all_angles()
 
     masks_done_time = time.time() - start_time - splits_done_time
-    print(f"masks done in {masks_done_time} seconds")
+    print(f"\tMasks finished after {round(masks_done_time, 2)} seconds.")
 
-    save_to_output_folder(frame, name)
+
+    frame.create_dual_pane_display()
+
+    save_to_output_folder(frame.dual_panel_frame, name, "output_")
+    # save_to_output_folder(frame.example_frame, name, "red_line")
+    # save_to_output_folder(frame.color_frame, name, "color")
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -557,28 +565,36 @@ def run_all_inputs(paths):
 
     for index in range(0, len(paths)):
         print(f"now running: {os.path.basename(paths[index])}")
+        print(f"Picture {index} of {len(paths)}.")
+        print(f"{round(index / len(paths), 2)} of the way done")
         source = cv2.imread(paths[index])
+
+        resizer_lol = resizer.ImageResizer(source, 600)
+
+        source = resizer_lol.resized_image
+
+
         current_frame = FrameSplitter(source)
         run_one_input(current_frame, paths[index])
     print("done with all!")
 
 
-def save_to_output_folder(output_file, output_name):
-    output_name = os.path.basename(output_name)
+def save_to_output_folder(output_file, output_name, prefix):
+    output_name = f"{prefix}_{os.path.basename(output_name)}"
 
     output_folder = os.path.join(os.getcwd(), "outputs")
-    print(f"output folder is {output_folder}")
+
 
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
 
     image_in_folder = os.path.join(output_folder, output_name)
-    rel_name = os.path.relpath(image_in_folder)
+    rel_name_for_example = os.path.relpath(image_in_folder)
 
-    print(f"output name is {output_name}")
-    print(f"his is new output names {rel_name}")
 
-    cv2.imwrite(rel_name, output_file.example_frame)
+    cv2.imwrite(rel_name_for_example, output_file)
+
+
 
 
 
